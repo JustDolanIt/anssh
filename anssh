@@ -1,18 +1,122 @@
 #!/usr/bin/env python3
 import os
 import sys
+import pprint
 from pathlib import Path
 
 import yaml
 import click
 
 
+
 # Global constants
 DEFAULT_CONFIG_PATH=os.path.expanduser("~/.anssh.yml")
 
 # Helper functions
+def parse_hosts_node(node):
+    parsed_nodes = list()
+    for node_item in node.items():
+        if node_item[0] == 'children':
+            if node_item[1] is not None:
+                for subnode in node_item[1].items():
+                    parsed_nodes = parsed_nodes + parse_hosts_node(subnode[1])
+        if node_item[0] == 'hosts':
+            if node_item[1] is not None:
+                for subnode in node_item[1].items():
+                    temp_node = dict()
+                    temp_node['name'] = subnode[0]
+                    temp_node['host'] = subnode[1].get('ansible_host', temp_node['name'])
+                    temp_node['port'] = subnode[1].get('ansible_port', None)
+                    temp_node['user'] = subnode[1].get('ansible_user', None)
+                    temp_node['ssh_key'] = subnode[1].get('ansible_ssh_private_key_file', None)
+                    if temp_node['ssh_key'] is not None:
+                        temp_node['ssh_key'] = os.path.expanduser(temp_node['ssh_key'])
+                    parsed_nodes.append(temp_node)
+    return parsed_nodes
+
+
+def parse_hosts(hosts_file_dict):
+    with open(hosts_file_dict['hosts_path']) as fil:
+        hosts_file_data = yaml.safe_load(fil.read())
+    parsed_data = parse_hosts_node(hosts_file_data['all'])
+    # Merge with other data in hosts_file_dict
+    for data in parsed_data:
+        data['user'] = data['user'] if data['user'] is not None else hosts_file_dict['user']
+        data['ssh_key'] = data['ssh_key'] if data['ssh_key'] is not None else hosts_file_dict['ssh_key']
+        data['namespace'] = hosts_file_dict['namespace']
+        data['client'] = hosts_file_dict['client']
+    return parsed_data
+
 def generate_hosts(config):
-    # For every 
+    hosts = list()
+    hosts_files = list()
+
+    # Get default params from config if it present
+    defaults = config.get('default', dict())
+
+    # Per namespace, generate list of hosts files
+    for namespace in config['namespaces']:
+        namespace_name = namespace['name']
+        namespace_user = namespace.get('user', defaults.get('user', None)) # None will use system default
+        namespace_ssh_key = namespace.get('ssh_key', defaults.get('ssh_key', None)) # Same
+        if namespace_ssh_key is not None:
+            namespace_ssh_key = os.path.expanduser(namespace_ssh_key),
+
+        # Get list of hosts files from namespace `clients` key
+        for client in namespace.get('clients', list()):
+            client_name = client['name']
+            client_user = client.get('user', namespace_user)
+            client_ssh_key = client.get('ssh_key', namespace_ssh_key)
+            if client_ssh_key is not None:
+                client_ssh_key = os.path.expanduser(client_ssh_key),
+            client_hosts_path = client['hosts_path']
+
+            # Add hosts_files config
+            hosts_files.append({
+                'user': client_user,
+                'ssh_key': client_ssh_key,
+                'hosts_path': os.path.expanduser(client_hosts_path),
+                'client': client_name,
+                'namespace': namespace_name
+                })
+
+        # Get list of hosts files from autodetect
+        for auto_clients in namespace.get('autodetect_clients', list()):
+            auto_clients_user = auto_clients.get('user', namespace_user)
+            auto_clients_ssh_key = client.get('ssh_key', namespace_ssh_key)
+            if auto_clients_ssh_key is not None:
+                auto_clients_ssh_key = os.path.expanduser(auto_clients_ssh_key),
+
+            auto_clients_root = auto_clients['inventories_path']
+            auto_clients_hosts_filename = auto_clients['hosts_filename']
+
+            # Get list of users in auto_clients_root by the name of dirs
+            auto_clients_subdirs = next(os.walk(os.path.expanduser(auto_clients_root)))[1]
+            for client_name in auto_clients_subdirs:
+                client_hosts_path = os.path.join(auto_clients_root, client_name, auto_clients_hosts_filename)
+
+                hosts_files.append({
+                    'user': auto_clients_user,
+                    'ssh_key': auto_clients_ssh_key,
+                    'hosts_path': os.path.expanduser(client_hosts_path),
+                    'client': client_name,
+                    'namespace': namespace_name
+                    })
+
+        # Generate hosts based on hosts_files
+        for hosts_file_dict in hosts_files:
+            hosts = hosts + parse_hosts(hosts_file_dict)
+
+        return hosts
+
+def generate_ssh_command(host_data):
+    args = ['ssh']
+    args = args + ([] if host_data['user'] is None else ['-l', host_data['user']])
+    args = args + ([] if host_data['ssh_key'] is None else ['-i', host_data['ssh_key']])
+    args = args + ([] if host_data['port'] is None else ['-p', str(host_data['port'])])
+    args = args + [host_data['host']]
+    return ' '.join(args)
+
 
 # Click grouping
 @click.group()
@@ -36,13 +140,22 @@ def complete(ctx):
 @cli.command()
 @click.pass_context
 def test_config(ctx):
-    click.echo(ctx.obj['config'])
+    click.echo('Current list of hosts files based on config:')
+    pprint.pprint(generate_hosts(ctx.obj['config']))
 
+# TODO
 @cli.command()
 @click.pass_context
-def list_hosts(ctx):
-    click.echo("Not implemented yet")
+def generate_apptmux_sessions_file(ctx):
+    # Example - tmux new-window -n 'windy.database' -t Windy:1 'ssh -i ~/.ssh/my -p 22 ddunaev@5.9.6.115'
+    for host in generate_hosts(ctx.obj['config']):
+        click.echo(generate_ssh_command(host))
 
+# TODO
+@cli.command()
+@click.pass_context
+def connect(ctx):
+    pass
 
 
 if __name__ == "__main__":
