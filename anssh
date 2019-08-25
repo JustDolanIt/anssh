@@ -3,16 +3,26 @@ import os
 import sys
 import pprint
 from pathlib import Path
+from collections import OrderedDict
 
 import yaml
 import click
-
 
 
 # Global constants
 DEFAULT_CONFIG_PATH=os.path.expanduser("~/.anssh.yml")
 
 # Helper functions
+
+## Config parsing
+def get_config(configfile=None):
+    if configfile is None:
+        configfile = open(DEFAULT_CONFIG_PATH, 'r')
+    config = yaml.safe_load(configfile.read())
+    if config is None:
+        config = {}
+    return config
+
 def parse_hosts_node(node):
     parsed_nodes = list()
     for node_item in node.items():
@@ -33,7 +43,6 @@ def parse_hosts_node(node):
                         temp_node['ssh_key'] = os.path.expanduser(temp_node['ssh_key'])
                     parsed_nodes.append(temp_node)
     return parsed_nodes
-
 
 def parse_hosts(hosts_file_dict):
     with open(hosts_file_dict['hosts_path']) as fil:
@@ -109,6 +118,41 @@ def generate_hosts(config):
 
         return hosts
 
+def hosts_array_to_dict(hosts_data):
+    def merge(source, destination):
+        """
+        Taken from https://stackoverflow.com/questions/20656135/python-deep-merge-dictionary-data
+
+        run me with nosetests --with-doctest file.py
+
+        >>> a = { 'first' : { 'all_rows' : { 'pass' : 'dog', 'number' : '1' } } }
+        >>> b = { 'first' : { 'all_rows' : { 'fail' : 'cat', 'number' : '5' } } }
+        >>> merge(b, a) == { 'first' : { 'all_rows' : { 'pass' : 'dog', 'fail' : 'cat', 'number' : '5' } } }
+        True
+        """
+        for key, value in source.items():
+            if isinstance(value, OrderedDict):
+                # get node or create one
+                node = destination.setdefault(key, OrderedDict())
+                merge(value, node)
+            else:
+                destination[key] = value
+
+        return destination
+
+    hosts_dict = OrderedDict()
+
+    for host in hosts_data:
+        tmp_host = host.copy()
+        tmp_host.pop('client', None)
+        tmp_host.pop('namespace', None)
+        tmp_host.pop('name', None)
+        cur_host =OrderedDict({host['namespace']: OrderedDict({host['client']: OrderedDict({host['name']: tmp_host}) }) })
+        hosts_dict = merge(hosts_dict.copy(), cur_host)
+
+    return hosts_dict
+
+## Connection string generation
 def generate_ssh_command(host_data):
     args = ['ssh']
     args = args + ([] if host_data['user'] is None else ['-l', host_data['user']])
@@ -118,15 +162,91 @@ def generate_ssh_command(host_data):
     return ' '.join(args)
 
 
+## Autocompletion functions
+# XXX usage of dynamic ctx is pretty much broken at the moment, so only default config will will work https://github.com/pallets/click/issues/942
+def auto_get_namespaces(ctx, args, incomplete):
+    if ctx.obj is None:
+        config = get_config()
+    else:
+        config = ctx.obj['config']
+    namespaces_available = list(
+            hosts_array_to_dict(
+                generate_hosts(
+                    config
+                    )
+                ).keys()
+            )
+    namespaces = list()
+    if len(incomplete) > 0:
+        for namespace in  namespaces_available:
+            if namespace.startswith(incomplete):
+                namespaces.append(namespace)
+    else:
+        namespaces = namespaces_available
+
+    return namespaces
+
+def auto_get_clients(ctx, args, incomplete):
+    if ctx.obj is None:
+        config = get_config()
+    else:
+        config = ctx.obj['config']
+
+    namespace = args[1]
+
+    clients_available = list(
+            hosts_array_to_dict(
+                generate_hosts(
+                    config
+                    )
+                )[namespace].keys()
+            )
+
+    clients = list()
+    if len(incomplete) > 0:
+        for client in  clients_available:
+            if client.startswith(incomplete):
+                clients.append(client)
+    else:
+        clients = clients_available
+
+    return clients
+
+def auto_get_hosts(ctx, args, incomplete):
+    if ctx.obj is None:
+        config = get_config()
+    else:
+        config = ctx.obj['config']
+
+    namespace = args[1]
+
+    client = args[2]
+
+    hosts_available = list(
+            hosts_array_to_dict(
+                generate_hosts(
+                    config
+                    )
+                )[namespace][client].keys()
+            )
+
+    hosts = list()
+    if len(incomplete) > 0:
+        for host in  hosts_available:
+            if host.startswith(incomplete):
+                hosts.append(host)
+    else:
+        hosts = hosts_available
+
+    return hosts
+
+
 # Click grouping
 @click.group()
 @click.pass_context
 @click.option('--configfile', envvar='ANSSH_CONFIGFILE', default=DEFAULT_CONFIG_PATH, help='Path to config file', type=click.File('r'))
 def cli(ctx, configfile):
-    config = yaml.safe_load(configfile.read())
-    if config is None:
-        config = {}
-    ctx.obj['config'] = config
+    ctx.obj['config'] = get_config(configfile)
 
 # Click commands
 @cli.command()
@@ -141,21 +261,75 @@ def complete(ctx):
 @click.pass_context
 def test_config(ctx):
     click.echo('Current list of hosts files based on config:')
-    pprint.pprint(generate_hosts(ctx.obj['config']))
+    hosts = generate_hosts(ctx.obj['config'])
+    pprint.pprint(hosts)
+    click.echo('In dict format:')
+    pprint.pprint(hosts_array_to_dict(hosts))
 
-# TODO
 @cli.command()
 @click.pass_context
-def generate_apptmux_sessions_file(ctx):
+@click.argument('namespace', type=click.STRING, autocompletion=auto_get_namespaces)
+def generate_apptmux_sessions_file(ctx, namespace):
+    hosts_dict = hosts_array_to_dict(generate_hosts(ctx.obj['config']))
+
+    if namespace in hosts_dict:
+
+        for client_name in hosts_dict[namespace].keys():
+            click.echo(client_name)
+
+    else:
+        click.echo("Namespace {} does not exist in config file".format(namespace))
+        click.echo()
+        click.echo("Available namespaces:")
+        click.echo(', '.join(list(hosts_dict.keys())))
+        sys.exit(1)
+
+@cli.command()
+@click.pass_context
+@click.argument('namespace', type=click.STRING, autocompletion=auto_get_namespaces)
+def generate_apptmux_sessions_list(ctx, namespace):
+    hosts_dict = hosts_array_to_dict(generate_hosts(ctx.obj['config']))
+
     # Example - tmux new-window -n 'windy.database' -t Windy:1 'ssh -i ~/.ssh/my -p 22 ddunaev@5.9.6.115'
-    for host in generate_hosts(ctx.obj['config']):
-        click.echo(generate_ssh_command(host))
+    if namespace in hosts_dict:
 
-# TODO
+        for client_name, hosts in hosts_dict[namespace].items():
+
+            for host_name, host in hosts.items():
+
+
+                host_number = list(hosts.values()).index(host) + 1
+                ssh_command = generate_ssh_command(host)
+                click.echo("tmux new-window -n '{}' -t {}:{} '{}'".format(
+                    host_name,
+                    client_name,
+                    host_number,
+                    ssh_command,
+                    )
+                )
+
+    else:
+        click.echo("Namespace {} does not exist in config file".format(namespace))
+        click.echo()
+        click.echo("Available namespaces:")
+        click.echo(', '.join(list(hosts_dict.keys())))
+        sys.exit(1)
+
 @cli.command()
 @click.pass_context
-def connect(ctx):
-    pass
+@click.argument('namespace', type=click.STRING, autocompletion=auto_get_namespaces)
+@click.argument('client', type=click.STRING, autocompletion=auto_get_clients)
+@click.argument('host', type=click.STRING, autocompletion=auto_get_hosts)
+def connect(ctx, namespace, client, host):
+    click.echo(
+        generate_ssh_command(
+            hosts_array_to_dict(
+                generate_hosts(
+                    ctx.obj['config']
+                    )
+                )[namespace][client][host]
+            )
+        )
 
 
 if __name__ == "__main__":
