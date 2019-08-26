@@ -13,7 +13,6 @@ import click
 DEFAULT_CONFIG_PATH=os.path.expanduser("~/.anssh.yml")
 
 # Helper functions
-
 ## Config parsing
 def get_config(configfile=None):
     if configfile is None:
@@ -64,7 +63,7 @@ def generate_hosts(config):
     defaults = config.get('default', dict())
 
     # Per namespace, generate list of hosts files
-    for namespace in config['namespaces']:
+    for namespace in config.get('namespaces', []):
         namespace_name = namespace['name']
         namespace_user = namespace.get('user', defaults.get('user', None)) # None will use system default
         namespace_ssh_key = namespace.get('ssh_key', defaults.get('ssh_key', None)) # Same
@@ -116,7 +115,7 @@ def generate_hosts(config):
         for hosts_file_dict in hosts_files:
             hosts = hosts + parse_hosts(hosts_file_dict)
 
-        return hosts
+    return hosts
 
 def hosts_array_to_dict(hosts_data):
     def merge(source, destination):
@@ -287,27 +286,34 @@ def generate_apptmux_sessions_file(ctx, namespace):
 @cli.command()
 @click.pass_context
 @click.argument('namespace', type=click.STRING, autocompletion=auto_get_namespaces)
-def generate_apptmux_sessions_list(ctx, namespace):
+@click.argument('client', type=click.STRING, autocompletion=auto_get_clients)
+def generate_apptmux_sessions_list(ctx, namespace, client):
     hosts_dict = hosts_array_to_dict(generate_hosts(ctx.obj['config']))
 
     # Example - tmux new-window -n 'windy.database' -t Windy:1 'ssh -i ~/.ssh/my -p 22 ddunaev@5.9.6.115'
     if namespace in hosts_dict:
 
-        for client_name, hosts in hosts_dict[namespace].items():
+        if client in hosts_dict[namespace]:
 
-            for host_name, host in hosts.items():
+                for host_name, host in hosts_dict[namespace][client].items():
 
 
-                host_number = list(hosts.values()).index(host) + 1
-                ssh_command = generate_ssh_command(host)
-                click.echo("tmux new-window -n '{}' -t {}:{} '{}'".format(
-                    host_name,
-                    client_name,
-                    host_number,
-                    ssh_command,
+                    host_number = list(hosts_dict[namespace][client].values()).index(host) + 1
+                    ssh_command = generate_ssh_command(host)
+                    click.echo("tmux new-window -n '{}' -t {}:{} '{}'".format(
+                        host_name,
+                        client,
+                        host_number,
+                        ssh_command,
+                        )
                     )
-                )
 
+        else:
+            click.echo("Client {} in namepace {} does not exist in config file".format(client, namespace))
+            click.echo()
+            click.echo("Available clients in namespace {}:".format(namespace))
+            click.echo(', '.join(list(hosts_dict[namespace].keys())))
+            sys.exit(1)
     else:
         click.echo("Namespace {} does not exist in config file".format(namespace))
         click.echo()
