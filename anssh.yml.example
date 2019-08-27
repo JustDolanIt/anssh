@@ -1,0 +1,12 @@
+#default:
+#    user: root
+#    ssh_key: ~/.ssh/id_rsa
+
+namespaces:
+  - name: private
+    clients:
+      - name: private
+        hosts_path: ~/ansible/hosts.yaml
+    autodetect_clients:
+      - hosts_filename: hosts.yaml
+        inventories_path: ~/ansible_grouped/inventories/
