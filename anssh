@@ -93,7 +93,7 @@ def generate_hosts(config):
             auto_clients_user = auto_clients.get('user', namespace_user)
             auto_clients_ssh_key = client.get('ssh_key', namespace_ssh_key)
             if auto_clients_ssh_key is not None:
-                auto_clients_ssh_key = os.path.expanduser(auto_clients_ssh_key),
+                auto_clients_ssh_key = os.path.expanduser(auto_clients_ssh_key)
 
             auto_clients_root = auto_clients['inventories_path']
             auto_clients_hosts_filename = auto_clients['hosts_filename']
