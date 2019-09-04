@@ -68,7 +68,7 @@ def generate_hosts(config):
         namespace_user = namespace.get('user', defaults.get('user', None)) # None will use system default
         namespace_ssh_key = namespace.get('ssh_key', defaults.get('ssh_key', None)) # Same
         if namespace_ssh_key is not None:
-            namespace_ssh_key = os.path.expanduser(namespace_ssh_key),
+            namespace_ssh_key = os.path.expanduser(namespace_ssh_key)
 
         # Get list of hosts files from namespace `clients` key
         for client in namespace.get('clients', list()):
@@ -76,7 +76,7 @@ def generate_hosts(config):
             client_user = client.get('user', namespace_user)
             client_ssh_key = client.get('ssh_key', namespace_ssh_key)
             if client_ssh_key is not None:
-                client_ssh_key = os.path.expanduser(client_ssh_key),
+                client_ssh_key = os.path.expanduser(client_ssh_key)
             client_hosts_path = client['hosts_path']
 
             # Add hosts_files config
