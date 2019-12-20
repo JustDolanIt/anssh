@@ -23,25 +23,30 @@ def get_config(configfile=None):
     return config
 
 def parse_hosts_node(node):
-    parsed_nodes = list()
+    parsed_nodes = dict()
     for node_item in node.items():
         if node_item[0] == 'children':
             if node_item[1] is not None:
                 for subnode in node_item[1].items():
-                    parsed_nodes = parsed_nodes + parse_hosts_node(subnode[1])
+                    parsed_node_data = parse_hosts_node(subnode[1])
+                    if parsed_nodes is None:
+                        parsed_nodes = dict()
+                    parsed_nodes.update(parsed_node_data)
         if node_item[0] == 'hosts':
             if node_item[1] is not None:
                 for subnode in node_item[1].items():
-                    temp_node = dict()
-                    temp_node['name'] = subnode[0]
-                    temp_node['host'] = subnode[1].get('ansible_host', temp_node['name'])
-                    temp_node['port'] = subnode[1].get('ansible_port', None)
-                    temp_node['user'] = subnode[1].get('ansible_user', None)
-                    temp_node['ssh_key'] = subnode[1].get('ansible_ssh_private_key_file', None)
-                    temp_node['options'] = subnode[1].get('ansible_ssh_common_args', None)
-                    if temp_node['ssh_key'] is not None:
-                        temp_node['ssh_key'] = os.path.expanduser(temp_node['ssh_key'])
-                    parsed_nodes.append(temp_node)
+                    temp_node = {
+                        subnode[0]: {
+                            'host': subnode[1].get('ansible_host', subnode[0]),
+                            'port': subnode[1].get('ansible_port', None),
+                            'user': subnode[1].get('ansible_user', None),
+                            'ssh_key': subnode[1].get('ansible_ssh_private_key_file', None),
+                            'options': subnode[1].get('ansible_ssh_common_args', None),
+                            }
+                        }
+                    if temp_node[subnode[0]]['ssh_key'] is not None:
+                        temp_node[subnode[0]]['ssh_key'] = os.path.expanduser(temp_node['ssh_key'])
+                    parsed_nodes.update(temp_node)
     return parsed_nodes
 
 def parse_hosts(hosts_file_dict):
@@ -49,24 +54,34 @@ def parse_hosts(hosts_file_dict):
         hosts_file_data = yaml.safe_load(fil.read())
     parsed_data = parse_hosts_node(hosts_file_data['all'])
     # Merge with other data in hosts_file_dict
-    for data in parsed_data:
+    for key, data in parsed_data.items():
         data['user'] = data['user'] if data['user'] is not None else hosts_file_dict['user']
         data['ssh_key'] = data['ssh_key'] if data['ssh_key'] is not None else hosts_file_dict['ssh_key']
         data['options'] = data['options'] if data['options'] is not None else hosts_file_dict['options']
         data['namespace'] = hosts_file_dict['namespace']
         data['client'] = hosts_file_dict['client']
+
     return parsed_data
 
 def generate_hosts(config):
-    hosts = list()
-    hosts_files = list()
+    hosts = dict()
 
     # Get default params from config if it present
     defaults = config.get('default', dict())
+    if defaults is None:
+        defaults = dict()
 
     # Per namespace, generate list of hosts files
     for namespace in config.get('namespaces', []):
-        namespace_name = namespace['name']
+        try:
+            namespace_name = namespace['name']
+        except Exception:
+            click.echo("Namespace does not have name")
+            pprint.pprint(namespace)
+            sys.exit(1)
+
+        hosts[namespace_name] = {}
+
         namespace_user = namespace.get('user', defaults.get('user', None)) # None will use system default
         namespace_ssh_key = namespace.get('ssh_key', defaults.get('ssh_key', None)) # Same
         namespace_options = namespace.get('options', defaults.get('options', None)) # Same
@@ -75,7 +90,13 @@ def generate_hosts(config):
 
         # Get list of hosts files from namespace `clients` key
         for client in namespace.get('clients', list()):
-            client_name = client['name']
+            try:
+                client_name = client['name']
+            except Exception:
+                click.echo("Clientd does not have name")
+                pprint.pprint(client)
+                sys.exit(2)
+
             client_user = client.get('user', namespace_user)
             client_ssh_key = client.get('ssh_key', namespace_ssh_key)
             client_options = client.get('options', namespace_options)
@@ -83,21 +104,23 @@ def generate_hosts(config):
                 client_ssh_key = os.path.expanduser(client_ssh_key)
             client_hosts_path = client['hosts_path']
 
-            # Add hosts_files config
-            hosts_files.append({
+            hosts_parsed = parse_hosts({
                 'user': client_user,
                 'ssh_key': client_ssh_key,
                 'options': client_options,
                 'hosts_path': os.path.expanduser(client_hosts_path),
                 'client': client_name,
                 'namespace': namespace_name,
-                })
+            })
+
+            hosts[namespace_name][client_name] = dict()
+            hosts[namespace_name][client_name].update(hosts_parsed)
 
         # Get list of hosts files from autodetect
         for auto_clients in namespace.get('autodetect_clients', list()):
             auto_clients_user = auto_clients.get('user', namespace_user)
-            auto_clients_ssh_key = client.get('ssh_key', namespace_ssh_key)
-            auto_clients_options = client.get('options', namespace_options)
+            auto_clients_ssh_key = auto_clients.get('ssh_key', namespace_ssh_key)
+            auto_clients_options = auto_clients.get('options', namespace_options)
             if auto_clients_ssh_key is not None:
                 auto_clients_ssh_key = os.path.expanduser(auto_clients_ssh_key)
 
@@ -109,54 +132,19 @@ def generate_hosts(config):
             for client_name in auto_clients_subdirs:
                 client_hosts_path = os.path.join(auto_clients_root, client_name, auto_clients_hosts_filename)
 
-                hosts_files.append({
+                hosts_parsed = parse_hosts({
                     'user': auto_clients_user,
                     'ssh_key': auto_clients_ssh_key,
                     'options': auto_clients_options,
                     'hosts_path': os.path.expanduser(client_hosts_path),
                     'client': client_name,
                     'namespace': namespace_name,
-                    })
+                })
 
-        # Generate hosts based on hosts_files
-        for hosts_file_dict in hosts_files:
-            hosts = hosts + parse_hosts(hosts_file_dict)
+                hosts[namespace_name][client_name] = dict()
+                hosts[namespace_name][client_name].update(hosts_parsed)
 
     return hosts
-
-def hosts_array_to_dict(hosts_data):
-    def merge(source, destination):
-        """
-        Taken from https://stackoverflow.com/questions/20656135/python-deep-merge-dictionary-data
-
-        run me with nosetests --with-doctest file.py
-
-        >>> a = { 'first' : { 'all_rows' : { 'pass' : 'dog', 'number' : '1' } } }
-        >>> b = { 'first' : { 'all_rows' : { 'fail' : 'cat', 'number' : '5' } } }
-        >>> merge(b, a) == { 'first' : { 'all_rows' : { 'pass' : 'dog', 'fail' : 'cat', 'number' : '5' } } }
-        True
-        """
-        for key, value in source.items():
-            if isinstance(value, OrderedDict):
-                # get node or create one
-                node = destination.setdefault(key, OrderedDict())
-                merge(value, node)
-            else:
-                destination[key] = value
-
-        return destination
-
-    hosts_dict = OrderedDict()
-
-    for host in hosts_data:
-        tmp_host = host.copy()
-        tmp_host.pop('client', None)
-        tmp_host.pop('namespace', None)
-        tmp_host.pop('name', None)
-        cur_host =OrderedDict({host['namespace']: OrderedDict({host['client']: OrderedDict({host['name']: tmp_host}) }) })
-        hosts_dict = merge(hosts_dict.copy(), cur_host)
-
-    return hosts_dict
 
 ## Connection string generation
 def generate_ssh_command(host_data):
@@ -172,80 +160,92 @@ def generate_ssh_command(host_data):
 ## Autocompletion functions
 # XXX usage of dynamic ctx is pretty much broken at the moment, so only default config will will work https://github.com/pallets/click/issues/942
 def auto_get_namespaces(ctx, args, incomplete):
-    if ctx.obj is None:
-        config = get_config()
-    else:
-        config = ctx.obj['config']
-    namespaces_available = list(
-            hosts_array_to_dict(
+    try: 
+        if ctx.obj is None:
+            config = get_config()
+        else:
+            config = ctx.obj['config']
+
+        namespaces_available = list(
                 generate_hosts(
                     config
-                    )
                 ).keys()
             )
-    namespaces = list()
-    if len(incomplete) > 0:
-        for namespace in  namespaces_available:
-            if namespace.startswith(incomplete):
-                namespaces.append(namespace)
-    else:
-        namespaces = namespaces_available
 
-    return namespaces
+        namespaces = list()
+
+        if len(incomplete) > 0:
+            for namespace in  namespaces_available:
+                if namespace.startswith(incomplete):
+                    namespaces.append(namespace)
+        else:
+            namespaces = namespaces_available
+
+        return sorted(namespaces)
+
+    except KeyboardInterrupt:
+        return []
+
 
 def auto_get_clients(ctx, args, incomplete):
-    if ctx.obj is None:
-        config = get_config()
-    else:
-        config = ctx.obj['config']
+    try:
+        if ctx.obj is None:
+            config = get_config()
+        else:
+            config = ctx.obj['config']
 
-    namespace = args[1]
+        namespace = args[1]
 
-    clients_available = list(
-            hosts_array_to_dict(
+        clients_available = list(
                 generate_hosts(
                     config
-                    )
-                )[namespace].keys()
+                ).get(namespace, dict()).keys()
             )
 
-    clients = list()
-    if len(incomplete) > 0:
-        for client in  clients_available:
-            if client.startswith(incomplete):
-                clients.append(client)
-    else:
-        clients = clients_available
+        clients = list()
 
-    return clients
+        if len(incomplete) > 0:
+            for client in  clients_available:
+                if client.startswith(incomplete):
+                    clients.append(client)
+        else:
+            clients = clients_available
+
+        return sorted(clients)
+
+    except KeyboardInterrupt:
+        return []
 
 def auto_get_hosts(ctx, args, incomplete):
-    if ctx.obj is None:
-        config = get_config()
-    else:
-        config = ctx.obj['config']
+    try:
+        if ctx.obj is None:
+            config = get_config()
+        else:
+            config = ctx.obj['config']
 
-    namespace = args[1]
+        namespace = args[1]
 
-    client = args[2]
+        client = args[2]
 
-    hosts_available = list(
-            hosts_array_to_dict(
-                generate_hosts(
-                    config
-                    )
-                )[namespace][client].keys()
-            )
+        hosts_available = list(
+                    generate_hosts(
+                        config
+                    ).get(namespace, dict()).get(client, dict()).keys()
+                )
 
-    hosts = list()
-    if len(incomplete) > 0:
-        for host in  hosts_available:
-            if host.startswith(incomplete):
-                hosts.append(host)
-    else:
-        hosts = hosts_available
+        hosts = list()
 
-    return hosts
+        if len(incomplete) > 0:
+            for host in  hosts_available:
+                if host.startswith(incomplete):
+                    hosts.append(host)
+        else:
+            hosts = hosts_available
+
+        return sorted(hosts)
+
+    except KeyboardInterrupt:
+        return []
 
 
 # Click grouping
@@ -267,11 +267,9 @@ def complete(ctx):
 @cli.command()
 @click.pass_context
 def test_config(ctx):
-    click.echo('Current list of hosts files based on config:')
+    click.echo('Current dict of hosts files based on config:')
     hosts = generate_hosts(ctx.obj['config'])
     pprint.pprint(hosts)
-    click.echo('In dict format:')
-    pprint.pprint(hosts_array_to_dict(hosts))
 
 @cli.command()
 @click.pass_context
@@ -334,15 +332,16 @@ def generate_apptmux_sessions_list(ctx, namespace, client):
 @click.argument('client', type=click.STRING, autocompletion=auto_get_clients)
 @click.argument('host', type=click.STRING, autocompletion=auto_get_hosts)
 def connect(ctx, namespace, client, host):
-    command = generate_ssh_command(
-            hosts_array_to_dict(
-                generate_hosts(
-                    ctx.obj['config']
-                    )
-                )[namespace][client][host]
+    hosts = generate_hosts(
+                ctx.obj['config']
             )
-    click.echo(command)
-    os.system(command)
+    host_data = hosts.get(namespace, dict()).get(client, dict()).get(host, None)
+    if host_data is None:
+        click.echo('Host not found')
+    else:
+        command = generate_ssh_command(host_data)
+        click.echo(command)
+        os.system(command)
 
 if __name__ == "__main__":
     cli(obj={})

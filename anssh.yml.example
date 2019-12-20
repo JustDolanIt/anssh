@@ -1,4 +1,4 @@
-#default:
+default:
 #    user: root
 #    ssh_key: ~/.ssh/id_rsa
 #    options: '-o ProxyCommand="ssh -W %h:%p -q -l %u example.com"'
