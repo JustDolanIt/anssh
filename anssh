@@ -275,11 +275,11 @@ def test_config(ctx):
 @click.pass_context
 @click.argument('namespace', type=click.STRING, autocompletion=auto_get_namespaces)
 def generate_apptmux_sessions_file(ctx, namespace):
-    hosts_dict = hosts_array_to_dict(generate_hosts(ctx.obj['config']))
+    hosts_dict = generate_hosts(ctx.obj['config'])
 
     if namespace in hosts_dict:
 
-        for client_name in hosts_dict[namespace].keys():
+        for client_name in sorted(hosts_dict[namespace].keys()):
             click.echo(client_name)
 
     else:
@@ -294,7 +294,7 @@ def generate_apptmux_sessions_file(ctx, namespace):
 @click.argument('namespace', type=click.STRING, autocompletion=auto_get_namespaces)
 @click.argument('client', type=click.STRING, autocompletion=auto_get_clients)
 def generate_apptmux_sessions_list(ctx, namespace, client):
-    hosts_dict = hosts_array_to_dict(generate_hosts(ctx.obj['config']))
+    hosts_dict = generate_hosts(ctx.obj['config'])
 
     # Example - tmux new-window -n 'windy.database' -t Windy:1 'ssh -i ~/.ssh/my -p 22 ddunaev@5.9.6.115'
     if namespace in hosts_dict:
