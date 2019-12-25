@@ -7,3 +7,4 @@
 - [x] Honour ansible_user
 - [x] Honour ansible_ssh_common_args
 - [x] Honour ansible_ssh_private_key
+- [ ] And passing of optional ssh params available on connect (-A / -L for example)
