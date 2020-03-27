@@ -45,7 +45,7 @@ def parse_hosts_node(node):
                             }
                         }
                     if temp_node[subnode[0]]['ssh_key'] is not None:
-                        temp_node[subnode[0]]['ssh_key'] = os.path.expanduser(temp_node['ssh_key'])
+                        temp_node[subnode[0]]['ssh_key'] = os.path.expanduser(temp_node[subnode[0]]['ssh_key'])
                     parsed_nodes.update(temp_node)
     return parsed_nodes
 
