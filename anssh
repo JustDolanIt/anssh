@@ -4,13 +4,12 @@ import sys
 import pprint
 from pathlib import Path
 from collections import OrderedDict
-
 import yaml
 import click
 
-
 # Global constants
 DEFAULT_CONFIG_PATH=os.path.expanduser("~/.anssh.yml")
+
 
 # Helper functions
 ## Config parsing
@@ -21,6 +20,7 @@ def get_config(configfile=None):
     if config is None:
         config = {}
     return config
+
 
 def parse_hosts_node(node):
     parsed_nodes = dict()
@@ -49,6 +49,7 @@ def parse_hosts_node(node):
                     parsed_nodes.update(temp_node)
     return parsed_nodes
 
+
 def parse_hosts(hosts_file_dict):
     with open(hosts_file_dict['hosts_path']) as fil:
         hosts_file_data = yaml.safe_load(fil.read())
@@ -62,6 +63,7 @@ def parse_hosts(hosts_file_dict):
         data['client'] = hosts_file_dict['client']
 
     return parsed_data
+
 
 def generate_hosts(config):
     hosts = dict()
@@ -146,7 +148,8 @@ def generate_hosts(config):
 
     return hosts
 
-## Connection string generation
+
+# Connection string generation
 def generate_ssh_command(host_data):
     args = ['ssh']
     args = args + ([] if host_data['user'] is None else ['-l', host_data['user']])
@@ -157,7 +160,7 @@ def generate_ssh_command(host_data):
     return ' '.join(args)
 
 
-## Autocompletion functions
+# Autocompletion functions
 # XXX usage of dynamic ctx is pretty much broken at the moment, so only default config will will work https://github.com/pallets/click/issues/942
 def auto_get_namespaces(ctx, args, incomplete):
     try: 
@@ -216,6 +219,7 @@ def auto_get_clients(ctx, args, incomplete):
     except KeyboardInterrupt:
         return []
 
+
 def auto_get_hosts(ctx, args, incomplete):
     try:
         if ctx.obj is None:
@@ -255,6 +259,7 @@ def auto_get_hosts(ctx, args, incomplete):
 def cli(ctx, configfile):
     ctx.obj['config'] = get_config(configfile)
 
+
 # Click commands
 @cli.command()
 @click.pass_context
@@ -264,12 +269,14 @@ def complete(ctx):
     click.echo("To add autocompletion, add this lines to ~/.bashrc:")
     click.echo("source <(_{}_COMPLETE=source {})".format(os.path.basename(__file__).upper(), script_path))
 
+
 @cli.command()
 @click.pass_context
 def test_config(ctx):
     click.echo('Current dict of hosts files based on config:')
     hosts = generate_hosts(ctx.obj['config'])
     pprint.pprint(hosts)
+
 
 @cli.command()
 @click.pass_context
@@ -288,6 +295,7 @@ def generate_apptmux_sessions_file(ctx, namespace):
         click.echo("Available namespaces:")
         click.echo(', '.join(list(hosts_dict.keys())))
         sys.exit(1)
+
 
 @cli.command()
 @click.pass_context
@@ -326,6 +334,7 @@ def generate_apptmux_sessions_list(ctx, namespace, client):
         click.echo(', '.join(list(hosts_dict.keys())))
         sys.exit(1)
 
+
 @cli.command()
 @click.pass_context
 @click.argument('namespace', type=click.STRING, autocompletion=auto_get_namespaces)
@@ -342,6 +351,7 @@ def connect(ctx, namespace, client, host):
         command = generate_ssh_command(host_data)
         click.echo(command)
         os.system(command)
+
 
 if __name__ == "__main__":
     cli(obj={})
