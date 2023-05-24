@@ -5,13 +5,13 @@ It can be downloaded directly from Github repository at `https://github.com/Just
 
 It parses Ansible inventories to establish SSH connection with servers.
 
-## Setup 
+## Setup
 
 ### Dependencies
 
 - Python 3
-- Click 7.0
-- PyYaml 5.1.2
+- Click 8.1.3
+- PyYaml 6.0
 
 Python dependencies can be installed with pip: `pip install -r <path-to-repository>/requirements.txt`
 
@@ -33,6 +33,10 @@ Python dependencies can be installed with pip: `pip install -r <path-to-reposito
 3. Ensure you have proper inventory files pointed out by above configuration
 4. Add `anssh` from main repository's to your `PATH` variable
 
+### Autocompletion
+
+In order to enable autocompletion, you need to setup your shell to support it. For bash, you may run `anssh complete` to get required string. For other shells refer to the [Click official docs](https://click.palletsprojects.com/en/8.1.x/shell-completion/).
+
 ## Usage
 
 ```bash
@@ -40,7 +44,7 @@ anssh connect <NAMESPACE> <GROUP> <HOSTNAME_WITHIN_INVENTORY_FILE>
 
 ## TODO
 
-- [ ] Write usable README
+- [x] Write usable README
 - [ ] Integrate with SetupTools (https://click.palletsprojects.com/en/7.x/setuptools/)
 - [x] Optimize work by deleting files to list to dict cycle by changing it to files to dict
 - [x] Catch all KeyError exceptions
