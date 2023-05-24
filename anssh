@@ -267,7 +267,7 @@ def complete(ctx):
     script_path = os.path.realpath(__file__)
 
     click.echo("To add autocompletion, add this lines to ~/.bashrc:")
-    click.echo("source <(_{}_COMPLETE=source {})".format(os.path.basename(__file__).upper(), script_path))
+    click.echo('eval "$(_{}_COMPLETE=bash_source {})"'.format(os.path.basename(__file__).upper(), script_path))
 
 
 @cli.command()
@@ -280,7 +280,7 @@ def test_config(ctx):
 
 @cli.command()
 @click.pass_context
-@click.argument('namespace', type=click.STRING, autocompletion=auto_get_namespaces)
+@click.argument('namespace', type=click.STRING, shell_complete=auto_get_namespaces)
 def generate_apptmux_sessions_file(ctx, namespace):
     hosts_dict = generate_hosts(ctx.obj['config'])
 
@@ -299,8 +299,8 @@ def generate_apptmux_sessions_file(ctx, namespace):
 
 @cli.command()
 @click.pass_context
-@click.argument('namespace', type=click.STRING, autocompletion=auto_get_namespaces)
-@click.argument('client', type=click.STRING, autocompletion=auto_get_clients)
+@click.argument('namespace', type=click.STRING, shell_complete=auto_get_namespaces)
+@click.argument('client', type=click.STRING, shell_complete=auto_get_clients)
 def generate_apptmux_sessions_list(ctx, namespace, client):
     hosts_dict = generate_hosts(ctx.obj['config'])
 
@@ -337,9 +337,9 @@ def generate_apptmux_sessions_list(ctx, namespace, client):
 
 @cli.command()
 @click.pass_context
-@click.argument('namespace', type=click.STRING, autocompletion=auto_get_namespaces)
-@click.argument('client', type=click.STRING, autocompletion=auto_get_clients)
-@click.argument('host', type=click.STRING, autocompletion=auto_get_hosts)
+@click.argument('namespace', type=click.STRING, shell_complete=auto_get_namespaces)
+@click.argument('client', type=click.STRING, shell_complete=auto_get_clients)
+@click.argument('host', type=click.STRING, shell_complete=auto_get_hosts)
 def connect(ctx, namespace, client, host):
     hosts = generate_hosts(
                 ctx.obj['config']
